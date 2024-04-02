@@ -163,4 +163,9 @@ config SAMPLE_RUST_SELFTESTS
 
 	  If unsure, say N.
 
+config SAMPLE_RUST_HELLOWORLD
+	tristate "Enable Rust HelloWorld module"
+	help
+	  Select this option to build the Rust HelloWorld kernel module.
+
 endif # SAMPLES_RUST
