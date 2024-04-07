@@ -1,8 +1,9 @@
 ifneq ($(KERNELRELEASE),)
 
 # In kbuild context
-module-objs := completion.o	
+module-objs := completion.o
 obj-m := completion.o
+obj-$(CONFIG_SAMPLE_RUST_SYNC)	+= rust_completion.o
 
 CFLAGS_hello_world.o := -DDEBUG
 else

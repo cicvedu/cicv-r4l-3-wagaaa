@@ -88,7 +88,8 @@ impl<T: Driver> Adapter<T> {
         //     `remove` is the canonical kernel location to free driver data. so OK
         //     to convert the pointer back to a Rust structure here.
         let data = unsafe { T::Data::from_pointer(ptr) };
-        T::remove(&data);
+        let mut dev = unsafe { Device::from_ptr(pdev) };
+        T::remove(&mut dev, &data);
         <T::Data as driver::DeviceRemoval>::device_remove(&data);
     }
 }
@@ -224,7 +225,7 @@ pub trait Driver {
     ///
     /// Called when a platform device is removed.
     /// Implementers should prepare the device for complete removal here.
-    fn remove(_data: &Self::Data);
+    fn remove(_dev: &mut Device, _data: &Self::Data);
 }
 
 /// PCI resource
@@ -294,6 +295,11 @@ impl Device {
         }
     }
 
+    /// Disable device
+    pub fn disable_device(&mut self) {
+        unsafe { bindings::pci_disable_device(self.ptr) };
+    }
+
     /// iter PCI Resouces
     pub fn iter_resource(&self) -> impl Iterator<Item = Resource> + '_ {
         // SAFETY: By the type invariants, we know that `self.ptr` is non-null and valid.
@@ -321,6 +327,12 @@ impl Device {
         } else {
             Ok(())
         }
+    }
+
+    /// Release PCI
+    pub fn release_selected_regions(&mut self, bars: i32) -> Result {
+        unsafe { bindings::pci_release_selected_regions(self.ptr, bars) };
+        Ok(())
     }
 
     /// Get address for accessing the device
