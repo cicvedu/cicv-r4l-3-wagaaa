@@ -7,8 +7,11 @@
 use core::iter::Iterator;
 use core::sync::atomic::AtomicPtr;
 
-use bindings::{pci_disable_device, pci_release_selected_regions, pci_save_state};
+use core::ops::Deref;
 use kernel::device::RawDevice;
+use kernel::driver::DeviceRemoval;
+use kernel::io_mem::IoMem;
+use kernel::net::DeviceOperations;
 use kernel::pci::Resource;
 use kernel::prelude::*;
 use kernel::sync::Arc;
@@ -96,8 +99,11 @@ impl NetDevice {
             unsafe { core::slice::from_raw_parts_mut(dma_desc.cpu_addr, RX_RING_SIZE) };
 
         // Alloc dma memory space for buffers
-        // 这一行有什么用?
-        // let dma_buf = dma::Allocation::<u8>::try_new(&*data.dev, RX_RING_SIZE * RXTX_SINGLE_RING_BLOCK_SIZE, bindings::GFP_KERNEL)?;
+        let dma_buf = dma::Allocation::<u8>::try_new(
+            &*data.dev,
+            RX_RING_SIZE * RXTX_SINGLE_RING_BLOCK_SIZE,
+            bindings::GFP_KERNEL,
+        )?;
 
         let mut rx_ring = RxRingBuf::new(dma_desc, RX_RING_SIZE);
 
@@ -204,16 +210,6 @@ impl net::DeviceOperations for NetDevice {
 
     fn stop(_dev: &net::Device, _data: &NetDevicePrvData) -> Result {
         pr_info!("Rust for linux e1000 driver demo (net device stop)\n");
-        _dev.netif_carrier_off();
-        _dev.netif_stop_queue();
-        // release irq
-        let ptr = _data
-            ._irq_handler
-            .load(core::sync::atomic::Ordering::Relaxed);
-        if !ptr.is_null() {
-            let _ = unsafe { Box::from_raw(ptr) };
-        }
-        _data.e1000_hw_ops.e1000_reset_hw();
         Ok(())
     }
 
@@ -325,6 +321,13 @@ struct E1000DrvPrvData {
 impl driver::DeviceRemoval for E1000DrvPrvData {
     fn device_remove(&self) {
         pr_info!("Rust for linux e1000 driver demo (device_remove)\n");
+
+        // 从设备注册表中获取已注册的网络设备实例
+        let device = self._netdev_reg.dev_get();
+
+        // 停止设备的数据包传输队列，意味着不再接收新的网络数据包
+        device.netif_stop_queue();
+        device.netif_carrier_on();
     }
 }
 
@@ -482,12 +485,24 @@ impl pci::Driver for E1000Drv {
         })?)
     }
 
-    fn remove(pdev: *mut bindings::pci_dev, data: &Self::Data) {
+    fn remove(dev: &mut pci::Device, data: &Self::Data) {
         pr_info!("Rust for linux e1000 driver demo (remove)\n");
-        unsafe {
-            pci_release_selected_regions(pdev, data.bars);
-            pci_disable_device(pdev);
-        };
+
+        // 获取设备的基址寄存器（Base Address Registers, BARs）信息
+        // 这些信息记录了设备在系统内存或I/O空间中的映射地址范围
+        let bars = data.bars;
+
+        // 调用实现了`DeviceRemoval` trait的结构体的`device_remove`方法
+        // 这个方法会执行设备特定的移除操作，例如停止设备功能、注销网络设备等
+        DeviceRemoval::device_remove(data);
+
+        // 释放之前分配给设备的内存或I/O区域
+        // 参数`bars`提供了要释放的区域信息
+        dev.release_selected_regions(bars);
+
+        // 禁用设备，使其无法继续与系统交互
+        // 这通常包括停止设备的工作、关闭中断请求等功能
+        dev.disable_device();
     }
 }
 struct E1000KernelMod {

@@ -88,8 +88,14 @@ impl<T: Driver> Adapter<T> {
         //     `remove` is the canonical kernel location to free driver data. so OK
         //     to convert the pointer back to a Rust structure here.
         let data = unsafe { T::Data::from_pointer(ptr) };
+        // 创建一个`Device`实例，它通常是一个封装了PCI设备的Rust类型。
         let mut dev = unsafe { Device::from_ptr(pdev) };
+
+        // 调用泛型类型`T`的`remove`方法，传入PCI设备实例和数据结构实例。
         T::remove(&mut dev, &data);
+
+        // 调用`T::Data`实现的`driver::DeviceRemoval` trait的`device_remove`方法，
+        // 进一步执行设备移除时需要的清理工作。
         <T::Data as driver::DeviceRemoval>::device_remove(&data);
     }
 }
